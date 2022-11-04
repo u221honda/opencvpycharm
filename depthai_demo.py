@@ -21,14 +21,22 @@ if platform.machine() == 'aarch64':  # Jetson
 
 sys.path.append(str(Path(__file__).parent.absolute()))
 sys.path.append(str((Path(__file__).parent / "depthai_sdk" / "src").absolute()))
-from depthai_sdk.managers import ArgsManager
 
-argsMngr = ArgsManager(Path(__file__))
-app = argsMngr.parseApp()
+try:
+    import cv2
+    import depthai as dai
+    import numpy as np
+    from depthai_sdk.managers import ArgsManager, getMonoResolution, getRgbResolution
+    from depthai_helpers.app_manager import App
+except Exception as ex:
+    print("Third party libraries failed to import: {}".format(ex))
+    print("Run \"python3 install_requirements.py\" to install dependencies")
+    sys.exit(42)
+
+app = ArgsManager.parseApp()
 
 if __name__ == "__main__":
     if app is not None:
-        from depthai_helpers.app_manager import App
         try:
             app = App(appName=app)
             app.createVenv()
@@ -37,19 +45,11 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             sys.exit(0)
 
-try:
-    import cv2
-    import depthai as dai
-    import numpy as np
-except Exception as ex:
-    print("Third party libraries failed to import: {}".format(ex))
-    print("Run \"python3 install_requirements.py\" to install dependencies or visit our installation page for more details - https://docs.luxonis.com/projects/api/en/latest/install/")
-    sys.exit(42)
+
 
 from log_system_information import make_sys_report
 from depthai_helpers.supervisor import Supervisor
 from depthai_helpers.config_manager import ConfigManager, DEPTHAI_ZOO, DEPTHAI_VIDEOS
-from depthai_helpers.metrics import MetricManager
 from depthai_helpers.version_check import checkRequirementsVersion
 from depthai_sdk import FPSHandler, loadModule, getDeviceInfo, downloadYTVideo, Previews, createBlankFrame
 from depthai_sdk.managers import NNetManager, SyncedPreviewManager, PreviewManager, PipelineManager, EncodingManager, BlobManager
@@ -58,7 +58,7 @@ from depthai_sdk.managers import NNetManager, SyncedPreviewManager, PreviewManag
 class OverheatError(RuntimeError):
     pass
 
-args = argsMngr.parseArgs()
+args = ArgsManager.parseArgs()
 
 if args.noSupervisor and args.guiType == "qt":
     if "QT_QPA_PLATFORM_PLUGIN_PATH" in os.environ:
@@ -131,10 +131,9 @@ class Demo:
             self.setup(conf)
             self.run()
 
-    def __init__(self, displayFrames=True, onNewFrame = noop, onShowFrame = noop, onNn = noop, onReport = noop, onSetup = noop, onTeardown = noop, onIter = noop, onAppSetup = noop, onAppStart = noop, shouldRun = lambda: True, showDownloadProgress=None, collectMetrics=False):
+    def __init__(self, displayFrames=True, onNewFrame = noop, onShowFrame = noop, onNn = noop, onReport = noop, onSetup = noop, onTeardown = noop, onIter = noop, onAppSetup = noop, onAppStart = noop, shouldRun = lambda: True, showDownloadProgress=None):
         self._openvinoVersion = None
         self._displayFrames = displayFrames
-        self.toggleMetrics(collectMetrics)
 
         self.onNewFrame = onNewFrame
         self.onShowFrame = onShowFrame
@@ -171,12 +170,6 @@ class Demo:
             self.onAppSetup = onAppSetup
         if onAppStart is not None:
             self.onAppStart = onAppStart
-
-    def toggleMetrics(self, enabled):
-        if enabled:
-            self.metrics = MetricManager()
-        else:
-            self.metrics = None
 
     def setup(self, conf: ConfigManager):
         print("Setting up demo...")
@@ -220,14 +213,10 @@ class Demo:
                 set_user({"mxid": self._device.getMxId()})
             except:
                 pass
-        if self.metrics is not None:
-            self.metrics.reportDevice(self._device)
         if self._deviceInfo.protocol == dai.XLinkProtocol.X_LINK_USB_VSC:
             print("USB Connection speed: {}".format(self._device.getUsbSpeed()))
         self._conf.adjustParamsToDevice(self._device)
         self._conf.adjustPreviewToOptions()
-        self._rgbRes = conf.getRgbResolution()
-        self._monoRes = conf.getMonoResolution()
         if self._conf.lowBandwidth:
             self._pm.enableLowBandwidth(poeQuality=self._conf.args.poeQuality)
         self._cap = cv2.VideoCapture(self._conf.args.video) if not self._conf.useCamera else None
@@ -247,18 +236,11 @@ class Demo:
                                fpsHandler=self._fps, createWindows=self._displayFrames, depthConfig=self._pm._depthConfig)
 
             if self._conf.leftCameraEnabled:
-                self._pm.createLeftCam(self._monoRes, self._conf.args.monoFps,
-                                 orientation=self._conf.args.cameraOrientation.get(Previews.left.name),
-                                 xout=Previews.left.name in self._conf.args.show)
+                self._pm.createLeftCam(args = self._conf.args)
             if self._conf.rightCameraEnabled:
-                self._pm.createRightCam(self._monoRes, self._conf.args.monoFps,
-                                  orientation=self._conf.args.cameraOrientation.get(Previews.right.name),
-                                  xout=Previews.right.name in self._conf.args.show)
+                self._pm.createRightCam(args = self._conf.args)
             if self._conf.rgbCameraEnabled:
-                self._pm.createColorCam(previewSize=self._conf.previewSize, res=self._rgbRes, fps=self._conf.args.rgbFps,
-                                  orientation=self._conf.args.cameraOrientation.get(Previews.color.name),
-                                  fullFov=not self._conf.args.disableFullFovNn,
-                                  xout=Previews.color.name in self._conf.args.show)
+                self._pm.createColorCam(args = self._conf.args)
 
             if self._conf.useDepth:
                 self._pm.createDepth(args = self._conf.args)
@@ -314,7 +296,7 @@ class Demo:
                 "saturation": self._conf.args.cameraSaturation,
                 "contrast": self._conf.args.cameraContrast,
                 "brightness": self._conf.args.cameraBrightness,
-                "sharpness": self._conf.args.cameraSharpness
+                "sharpness": self._conf.args.cameraSharpness,
             })
 
             self._pv.createQueues(self._device, self._createQueueCallback)
@@ -449,7 +431,7 @@ class Demo:
                 nextFilter = next(self._medianFilters)
                 self._pm.updateDepthConfig(self._device, median=nextFilter)
 
-            if self._conf.args.cameraControlls:
+            if self._conf.args.cameraControls:
                 update = True
 
                 if key == ord('t'):
@@ -589,7 +571,7 @@ def prepareConfManager(in_args):
     confManager.linuxCheckApplyUsbRules()
     if not confManager.useCamera:
         if str(confManager.args.video).startswith('https'):
-            confManager.args.video = downloadYTVideo(confManager.args.video, DEPTHAI_VIDEOS)
+            confManager.args.video = str(downloadYTVideo(confManager.args.video, DEPTHAI_VIDEOS))
             print("Youtube video downloaded.")
         if not Path(confManager.args.video).exists():
             raise ValueError("Path {} does not exists!".format(confManager.args.video))
@@ -734,7 +716,6 @@ def runQt():
             self.signals.setDataSignal.emit(["irDotBrightness", self.conf.args.irDotBrightness if self.conf.irEnabled(instance._device) else 0])
             self.signals.setDataSignal.emit(["irFloodBrightness", self.conf.args.irFloodBrightness if self.conf.irEnabled(instance._device) else 0])
             self.signals.setDataSignal.emit(["lrc", self.conf.args.stereoLrCheck])
-            self.signals.setDataSignal.emit(["statisticsAccepted", self.instance.metrics is not None])
             self.signals.setDataSignal.emit(["modelChoices", sorted(self.conf.getAvailableZooModels(), key=cmp_to_key(lambda a, b: -1 if a == "mobilenet-ssd" else 1 if b == "mobilenet-ssd" else -1 if a < b else 1))])
 
 
@@ -765,17 +746,7 @@ def runQt():
             msgBox.setStandardButtons(QMessageBox.Ok)
             msgBox.exec()
 
-        def setupDataCollection(self):
-            try:
-                with Path(".consent").open() as f:
-                    accepted = json.load(f)["statistics"]
-            except:
-                accepted = True
-
-            self._demoInstance.toggleMetrics(accepted)
-
         def start(self):
-            self.setupDataCollection()
             self.running = True
             self.worker = Worker(self._demoInstance, parent=self, conf=self.confManager, selectedPreview=self.selectedPreview)
             self.worker.signals.updatePreviewSignal.connect(self.updatePreview)
@@ -899,10 +870,13 @@ def runQt():
                 else:
                     self.updateArg("monoFps", fps)
             if resolution is not None:
-                if name == "color":
-                    self.updateArg("rgbResolution", resolution)
+                if name == "color": 
+                    res = getRgbResolution(resolution)
+                    self.updateArg("rgbResolution", res)
+                    # Not ideal, we need to refactor this (throw the whole SDK away)
+                    self.updateArg("rgbResWidth", self.confManager.rgbResolutionWidth(res))
                 else:
-                    self.updateArg("monoResolution", resolution)
+                    self.updateArg("monoResolution", getMonoResolution(resolution))
 
         def guiOnAiSetupUpdate(self, cnn=None, shave=None, source=None, fullFov=None, sbb=None, sbbFactor=None, ov=None, countLabel=None):
             if cnn is not None:
