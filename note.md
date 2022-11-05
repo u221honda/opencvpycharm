@@ -24,3 +24,9 @@ vehicle-detection-adas-0002
 vehicle-license-plate-detection-barrier-0106
 yolo-v3
 注）*印のモデルのみが、-cnn2 オプションでも使用できます。
+
+
+## 実行
+
+$ [python3 depthai_demo.py] [-cnn] deeplabv3p_person
+<!-- ↑python3実行　　　　　　↑モデルを引用して実行できる -->
